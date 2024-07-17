@@ -1,1 +1,1 @@
-# RAG_Prompt-internLM
+ 基于InternLM实现诸葛知识智能问答助手项目

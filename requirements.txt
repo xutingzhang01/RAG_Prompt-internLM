@@ -2,3 +2,4 @@ pdfplumber
 python-docx
 modelscope
 sentencepiece
+einops

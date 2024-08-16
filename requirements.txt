@@ -1,2 +1,2 @@
-pip install pdfplumber
-pip install Document
+pdfplumber
+Document

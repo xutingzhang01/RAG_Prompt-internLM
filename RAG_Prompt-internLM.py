@@ -1,239 +1,236 @@
 '''
     基于InternLM实现诸葛知识智能问答助手项目
 '''
-
-import asyncio
+import json
+import re
+import os
+import datetime
+import gradio as gr
+from transformers import AutoTokenizer, AutoModelForCausalLM, RagTokenForGeneration, RagConfig, DPRContextEncoder, DPRQuestionEncoder
+from transformers import DPRContextEncoderTokenizerFast, DPRQuestionEncoderTokenizerFast, BitsAndBytesConfig
+import torch
+from datasets import load_dataset
 import logging
-from typing import List, Dict, Tuple
-from collections import defaultdict
-import spacy
-from aiohttp import web
-from transformers import pipeline, AutoTokenizer, AutoModelForQuestionAnswering
-from functools import lru_cache
-from aiohttp.web_exceptions import HTTPBadRequest, HTTPUnauthorized, HTTPInternalServerError
+from typing import List, Dict
+import pdfplumber
+from docx import Document  # 新增支持.docx 文件
+import pandas as pd  # 新增支持.xlsx 文件
+import io
 
-# 设置日志记录
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO,format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', filename='/root/ft/app.log')
 logger = logging.getLogger(__name__)
 
-# 使用Spacy进行自然语言处理
-nlp = spacy.load('en_core_web_sm')
+# 初始化模型和 tokenizer
+MODEL_PATH = "/root/share/new_models/Shanghai_AI_Laboratory/internlm2-chat-7b"
+tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(MODEL_PATH, trust_remote_code=True)
 
-# 使用Hugging Face Transformers库加载预训练模型
-tokenizer = AutoTokenizer.from_pretrained("deepset/roberta-base-squad2")
-model = AutoModelForQuestionAnswering.from_pretrained("deepset/roberta-base-squad2")
-qa_pipeline = pipeline("question-answering", model=model, tokenizer=tokenizer, device=0)
+class QAGenerator:
+    def __init__(self, model_path):
+        self.model = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.model.to(self.device)
+        self.max_length = 2048  # 假设的最大长度
 
-# 异步问答管道
-async_qa_pipeline = pipeline("question-answering", model=model, tokenizer=tokenizer, device=0)
-
-
-class DataLayer:
-    def __init__(self):
-        self.text_database = []  # 假设这是一个简单的文本数据库
-        self.knowledge_base = {}  # 知识库
-        self.user_data = defaultdict(dict)  # 用户数据
-        
-    def store_text(self, text: str):
-        self.text_database.append(text)
-        
-    def store_knowledge(self, key: str, value: str):
-        self.knowledge_base[key] = value
-        
-    def store_user_data(self, user_id: str, data: dict):
-        self.user_data[user_id].update(data)
-
-class SupportLayer:
-    def __init__(self, data_layer: DataLayer):
-        self.data_layer = data_layer
-        self.nlp_module = NLPModule()
-        self.ml_model = MachineLearningModel()
-        self.data_mining_engine = DataMiningEngine()
-        
-    @lru_cache(maxsize=128)
-    def preprocess_text(self, text: str) -> str:
-        return self.nlp_module.preprocess(text)
-        
-    def train_model(self, data: List[str]):
-        self.ml_model.train(data)
-        
-    def extract_features(self, text: str) -> Dict[str, float]:
-        return self.data_mining_engine.extract_features(text)
-
-class CoreLayer:
-    def __init__(self, support_layer: SupportLayer):
-        self.support_layer = support_layer
-        self.info_processing = InformationProcessing(support_layer)
-        self.knowledge_application = KnowledgeApplication(support_layer)
-        self.smart_interaction = SmartInteraction(support_layer)
-        
-    async def process_information(self, text: str) -> str:
+    def _generate_with_retry(self, prompt, max_length, max_new_tokens, top_k, top_p):
+        logger.info(f"Generating response for prompt: {prompt[:100]}...")  # 记录提示的前100个字符
         try:
-            processed_text = await self.info_processing.process(text)
-            return processed_text
-        except asyncio.TimeoutError:
-            logger.error("Timeout error while processing information")
-            raise HTTPInternalServerError(reason="Error processing information due to timeout.")
+            with torch.no_grad():
+                input_ids = self.tokenizer.encode(prompt, return_tensors="pt").to(self.device)
+                output = self.model.generate(
+                    input_ids,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=True,
+                    top_k=top_k,
+                    top_p=top_p,
+                    temperature=0.7,
+                    eos_token_id=self.tokenizer.eos_token_id
+                )
+                decoded_output = self.tokenizer.decode(output[0], skip_special_tokens=True)
+                return decoded_output
         except Exception as e:
-            logger.error(f"Unexpected error: {e.__class__.__name__}")
-            raise HTTPInternalServerError(reason="Unexpected error occurred during information processing.")
+            logging.error(f"生成时发生错误: {str(e)}")
+            return "无法生成，请检查输入。"
+
+    def adjust_max_new_tokens(self, input_length):
+        logger.info(f"Adjusting max new tokens based on input length: {input_length}")
+        return min(input_length // 10, 32)
+
+    def preprocess_context(self, text):
+        logger.info("Preprocessing context...")
+        # 预处理逻辑
+        preprocess_context = re.sub(r'[^\w\s]', '', text.lower())
+        return preprocess_context
+
+    def postprocess_outlines(self, outlines, num_outlines):
+        # 后处理大纲
+        outlines_list = outlines.split('\n')
         
-    async def apply_knowledge(self, query: str) -> str:
-        try:
-            return await self.knowledge_application.apply(query)
-        except asyncio.TimeoutError:
-            logger.error("Timeout error while applying knowledge")
-            raise HTTPInternalServerError(reason="Error applying knowledge due to timeout.")
-        except Exception as e:
-            logger.error(f"Unexpected error: {e.__class__.__name__}")
-            raise HTTPInternalServerError(reason="Unexpected error occurred during knowledge application.")
+        # 保留前 num_outlines 个大纲
+        outlines_list = outlines_list[:num_outlines]
+
+        # 清理每个大纲
+        cleaned_outlines = [outline.strip() for outline in outlines_list if outline.strip()]
         
-        
-    async def interact(self, user_input: str, user_id: str) -> str:
-        try:
-            return await self.smart_interaction.interact(user_input, user_id)
-        except Exception as e:
-            logger.error(f"Error during interaction: {e}")
-            raise HTTPInternalServerError(reason="Error during interaction.")
+        return cleaned_outlines
 
-class InterfaceLayer:
-    def __init__(self, core_layer: CoreLayer):
-        self.core_layer = core_layer
-        self.api_interface = APIInterface(core_layer)
-        self.user_interface = UserInterface(core_layer)
-        
-    async def get_api_response(self, request: dict) -> str:
-        try:
-            query = request.get('query', '')
-            response = await self.core_layer.apply_knowledge(query)
-            return f"API Response: {response}"
-        except Exception as e:
-            logger.error(f"Error handling API request: {e}")
-            raise HTTPInternalServerError(reason="Error handling API request.")
-        
-    def display_user_interface(self):
-        # 实现用户界面显示逻辑
-        print("User Interface Displayed")
+    def read_file(self, file_path):
+        # 确保文件路径有效
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"文件 '{file_path}' 不存在")
+        # 读取文件内容
+        _, ext = os.path.splitext(file_path)
+        if ext == '.pdf':
+            return self.read_pdf(file_path)
+        elif ext == '.docx':
+            return self.read_docx(file_path)
+        elif ext == '.txt':
+            return self.read_text(file_path)
+        elif ext == '.xlsx':
+            return self.read_excel(file_path)
+        else:
+            raise ValueError(f"不支持的文件格式: {ext}")
 
-# 各个组件的具体实现
-class NLPModule:
-    def preprocess(self, text: str) -> str:
-        # 实现文本预处理逻辑
-        doc = nlp(text)
-        tokens = [token.text for token in doc if not token.is_stop and not token.is_punct]
-        return ' '.join(tokens)
-    
-class MachineLearningModel:
-    def train(self, data: List[str]):
-        # 实现模型训练逻辑
-        pass
-    
-class DataMiningEngine:
-    def extract_features(self, text: str) -> Dict[str, float]:
-        # 实现特征提取逻辑
-        doc = nlp(text)
-        features = {}
-        for ent in doc.ents:
-            features[ent.text] = 1.0
-        return features
-    
-class InformationProcessing:
-    def __init__(self, support_layer: SupportLayer):
-        self.support_layer = support_layer
-        
-    async def process(self, text: str) -> str:
-        processed_text = await asyncio.to_thread(self.support_layer.preprocess_text, text)
-        key_info = await asyncio.to_thread(self.extract_key_information, processed_text)
-        return f"Processed: {key_info}"
-    
-    def extract_key_information(self, text: str) -> str:
-        doc = nlp(text)
-        entities = [ent.text for ent in doc.ents]
-        return ', '.join(entities)
+    def read_pdf(self, file_path: str) -> str:
+        with pdfplumber.open(file_path) as pdf:
+            text = ''.join(page.extract_text() for page in pdf.pages)
+        return text
 
-class KnowledgeApplication:
-    def __init__(self, support_layer: SupportLayer):
-        self.support_layer = support_layer
-        self.qa_pipeline = async_qa_pipeline
-        
-    async def apply(self, query: str) -> str:
-        # 实现知识应用逻辑
-        # 这里我们使用预训练的QA模型来回答问题
-        context = " ".join(self.support_layer.data_layer.text_database)
-        result = await self.qa_pipeline(question=query, context=context)
-        answer = result["answer"]
-        return f"Knowledge applied for: {query} with answer: {answer}"
+    def read_docx(self, file_path: str) -> str:
+        doc = Document(file_path)
+        text = '\n'.join(para.text for para in doc.paragraphs)
+        return text
 
-class SmartInteraction:
-    def __init__(self, support_layer: SupportLayer):
-        self.support_layer = support_layer
-        self.qa_pipeline = async_qa_pipeline
-        
-    async def interact(self, user_input: str, user_id: str) -> str:
-        # 实现智能交互逻辑
-        processed_input = await asyncio.to_thread(self.support_layer.preprocess_text, user_input)
-        self.support_layer.data_layer.store_user_data(user_id, {'last_input': processed_input})
-        # 使用InternLM来生成回复
-        context = " ".join(self.support_layer.data_layer.text_database)
-        response = await self.qa_pipeline(question=user_input, context=context)
-        answer = response["answer"]
-        return f"Interacted with: {user_input}, Answer: {answer}"
+    def read_text(self, file_path: str) -> str:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            return file.read()
 
-class APIInterface:
-    def __init__(self, core_layer: CoreLayer):
-        self.core_layer = core_layer
-        
-    async def handle_request(self, request: web.Request) -> web.Response:
-        try:
-            query = request.query.get('query')
-            if not query:
-                raise HTTPBadRequest(reason="Query parameter is required.")
-            
-            api_key = request.headers.get('X-API-Key')
-            if not self.authenticate(api_key):
-                raise HTTPUnauthorized(reason="Invalid API Key.")
-            
-            response = await self.core_layer.apply_knowledge(query)
-            return web.json_response({"answer": response})
-        except asyncio.TimeoutError:
-            logger.error("Timeout error handling API request")
-            raise HTTPInternalServerError(reason="Request processing timed out.")
-        except Exception as e:
-            logger.error(f"Unexpected error: {e.__class__.__name__}")
-            raise HTTPInternalServerError(reason="Unexpected error occurred while handling API request.")
+    def read_excel(self, file_path: str) -> str:
+        df = pd.read_excel(file_path, engine='openpyxl')
+        text = "\n".join(df.iloc[:, 0].astype(str))
+        return text
 
-    def authenticate(self, api_key: str) -> bool:
-        # 假设API密钥验证逻辑已经安全实现
-        valid_keys = ['valid-api-key']  # 假设有效的API密钥
-        return api_key in valid_keys
+    def generate_questions_and_answers(self, text, custom_prompt, num_outlines, user_questions=None):
+        logger.info("Generating questions and answers...")
+        # 减少 max_new_tokens 来降低内存使用
+        max_new_tokens = self.adjust_max_new_tokens(len(text))
 
-class UserInterface:
-    def __init__(self, core_layer: CoreLayer):
-        self.core_layer = core_layer
-        
-    def display(self):
-        # 实现用户界面显示逻辑
-        print("User Interface Displayed")
+        # 动态调整 top_k 和 top_p 来降低多样性并减少内存使用
+        top_k = 10 if max_new_tokens <= 64 else 50
+        top_p = 0.8 if max_new_tokens <= 64 else 0.95
 
-# 初始化系统
-data_layer = DataLayer()
-support_layer = SupportLayer(data_layer)
-core_layer = CoreLayer(support_layer)
-interface_layer = InterfaceLayer(core_layer)
+        # 对用户上传的文档进行更详细的预处理
+        preprocessed_context = self.preprocess_context(text)
 
-# 创建Web服务器
-app = web.Application()
-app.router.add_post('/api/query', interface_layer.api_interface.handle_request)
+        qa_pairs=[]
+        # 生成问题
+        if user_questions:
+            logger.info("Using user-provided questions.")
+            for question in user_questions:
+                # 生成回答
+                answer_prompt = f"请根据文档内容或自定义提示，回答问题：'{question}'。"
+                if custom_prompt:
+                    answer_prompt += f"\n\n自定义提示: {custom_prompt}"
 
-async def on_startup(app):
-    print("Server started.")
+                answer = self._generate_with_retry(answer_prompt, self.max_length, max_new_tokens, top_k, top_p)
 
-async def on_cleanup(app):
-    print("Server stopped.")
+                # 转换为 Alpaca 格式
+                alpaca_format = {
+                    "instruction": question,
+                    "input": "",
+                    "output": answer if answer != "" else "模型还在学习中，系统无法做出回答，谢谢您的支持"
+                }
+                qa_pairs.append(alpaca_format)
+        else:
+            logger.info("Generating outlines.")
+            # 生成问题
+            outlines_prompt = (f"请根据提供的文档结构和内容生成 {num_outlines} 个问题。\n"
+                               f"{preprocessed_context}\n\n附加信息:\n{custom_prompt}")
+            if custom_prompt:
+                outlines_prompt += f"\n\n自定义提示: {custom_prompt}"
 
-app.on_startup.append(on_startup)
-app.on_cleanup.append(on_cleanup)
+            outlines = self._generate_with_retry(outlines_prompt, self.max_length, max_new_tokens, top_k, top_p)
+            # 确保问题以问号结束
+            outlines = re.sub(r'(?<!\?)\s*$', '?', outlines)
 
-# 启动Web服务器
-if __name__ == '__main__':
-    web.run_app(app, port=8080)
+            # 处理问题输出
+            outlines_list = self.postprocess_outlines(outlines, num_outlines)
+
+            # 生成问题和答案
+            for outline in outlines_list:
+                # 直接使用大纲作为问题
+                question = outline
+
+                # 生成回答
+                answer_prompt = f"请根据文档内容或自定义提示，回答问题：'{question}'。"
+                if custom_prompt:
+                    answer_prompt += f"\n\n自定义提示: {custom_prompt}"
+
+                answer = self._generate_with_retry(answer_prompt, self.max_length, max_new_tokens, top_k, top_p)
+
+                # 转换为 Alpaca 格式
+                alpaca_format = {
+                    "instruction": question,
+                    "input": "",
+                    "output": answer if answer != "" else "模型还在学习中，系统无法做出回答，谢谢您的支持"
+                }
+                qa_pairs.append(alpaca_format)
+                
+        logger.info(f"Generated {len(qa_pairs)} QA pairs.")
+        return qa_pairs
+
+    def parse_qa_pair(self, qa_pair: str) -> Dict[str, str]:
+        match = re.search(r"(?P<question>.*?\n)\s*(?P<answer>.*)", qa_pair, re.DOTALL)
+        if match:
+            question = match.group('question').strip()
+            answer = match.group('answer').strip()
+            return {"question": question, "answer": answer}
+        else:
+            return {"question": "", "answer": qa_pair.strip()}
+
+def create_gradio_ui():
+    def process_file(file, custom_prompt, num_outlines, user_questions):
+        if not file:
+            logger.warning("No file uploaded.")
+            return ""
+
+        text = generator.read_file(file.name)
+        qa_pairs = generator.generate_questions_and_answers(text, custom_prompt, num_outlines, user_questions=None)
+        json_data = json.dumps(qa_pairs, indent=4, ensure_ascii=False)
+        return json_data
+
+    def download_json(json_data):
+        if not isinstance(json_data, str):
+            raise TypeError("json_data 必须是字符串类型")
+
+        filename = f"qa_pairs_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write(json_data)
+        return filename, json_data
+
+    with gr.Blocks() as demo:
+        gr.Markdown("# 诸葛孔明智能数据集问答生成系统")
+        with gr.Row():
+            with gr.Column():
+                file_input = gr.File(label="上传文件", file_types=[".pdf", ".docx", ".txt", ".xlsx"])
+                custom_prompt_input = gr.Textbox(label="自定义提示", placeholder="可选")
+                num_outlines_input = gr.Slider(minimum=1, maximum=100, step=1, value=10, label="问题数量")
+                user_questions_input = gr.Textbox(label="自定义问题（一行一个问题）", placeholder="可选")
+                submit_button = gr.Button("生成问题和答案对")
+
+                with gr.Column():
+                    output_text = gr.Textbox(label="输出 JSON 数据")
+                    download_button = gr.Button("下载 JSON 文件")
+                    # 添加条件判断，如果没有文件上传则显示提示信息
+                    output_text.change(lambda x: "请上传文件以继续操作。" if x == "" else x, inputs=[output_text], outputs=[output_text])
+
+                submit_button.click(fn=process_file, inputs=[file_input, custom_prompt_input, num_outlines_input, user_questions_input], outputs=output_text)
+                download_button.click(fn=download_json, inputs=[output_text], outputs=[gr.File(), gr.Textbox()])
+
+                return demo
+
+if __name__ == "__main__":
+    generator = QAGenerator(MODEL_PATH)
+    demo = create_gradio_ui()
+    demo.launch(share=True)

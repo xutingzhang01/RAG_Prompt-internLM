@@ -15,7 +15,7 @@ from docx import Document  # 支持 .docx 文件
 import pandas as pd  # 支持 .xlsx 文件
 
 # 配置日志
-LOG_FILE = '/root/ft/app.log'
+LOG_FILE = '../app.log'
 logging.basicConfig(level=logging.INFO, filename=LOG_FILE, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 

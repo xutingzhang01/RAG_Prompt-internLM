@@ -11,15 +11,15 @@ import torch
 import logging
 from typing import List, Dict
 import pdfplumber
-from docx import Document  # 支持 .docx 文件
-import pandas as pd  # 支持 .xlsx 文件
+from docx import Document  
+import pandas as pd  
 
-# 配置日志
+
 LOG_FILE = '/root/ft/app.log'
 logging.basicConfig(level=logging.INFO, filename=LOG_FILE, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# 初始化模型和 tokenizer
+
 MODEL_PATH = "/root/share/new_models/Shanghai_AI_Laboratory/internlm2-chat-7b"
 tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, trust_remote_code=True)
 model = AutoModelForCausalLM.from_pretrained(MODEL_PATH, trust_remote_code=True)
@@ -30,14 +30,14 @@ class QAGenerator:
         self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
-        self.max_length = 2048  # 最大长度
+        self.max_length = 2048  
     
-    # 清理 GPU 缓存
+    
     def clear_gpu_cache(self):
         torch.cuda.empty_cache()
 
     def _generate_with_retry(self, prompt, max_length, max_new_tokens, top_k, top_p):
-        logger.info(f"Generating response for prompt: {prompt[:100]}...")  # 记录提示的前100个字符
+        logger.info(f"Generating response for prompt: {prompt[:100]}...")  
         try:
             with torch.no_grad():
                 input_ids = self.tokenizer.encode(prompt, return_tensors="pt").to(self.device)
@@ -62,16 +62,16 @@ class QAGenerator:
 
     def preprocess_context(self, text):
         logger.info("Preprocessing context...")
-        # 预处理逻辑
+        
         preprocess_context = re.sub(r'[^\w\s]', '', text.lower())
         return preprocess_context
 
     def postprocess_outlines(self, outlines, num_outlines):
-        # 后处理大纲
+       
         outlines_list = outlines.split('\n')
-        # 保留前 num_outlines 个大纲
+        
         outlines_list = outlines_list[:num_outlines]
-        # 清理每个大纲
+       
         cleaned_outlines = [outline.strip() for outline in outlines_list if outline.strip()]
         return cleaned_outlines
 
@@ -119,15 +119,15 @@ class QAGenerator:
         if user_questions:
             logger.info("Using user-provided questions.")
             for question in user_questions:
-                # 确保问题是问句形式
+               
                 question = question.strip() + '?' if not question.endswith('?') else question
                 answer_prompt = f"请根据文档内容，回答问题：'{question}'。"
                 if custom_prompt:
                     answer_prompt += f"\n\n自定义提示: {custom_prompt}"
                 answer = self._generate_with_retry(answer_prompt, self.max_length, max_new_tokens, top_k, top_p)
-                # 移除答案中的问题文本
+               
                 answer = answer.replace(question, '').strip() 
-                # 移除不必要的提示文本
+                
                 answer = answer.replace("请根据文档内容，回答问题：", '').strip()
                 
                 alpaca_format = {
@@ -151,9 +151,9 @@ class QAGenerator:
                 if custom_prompt:
                     answer_prompt += f"\n\n自定义提示: {custom_prompt}"
                 answer = self._generate_with_retry(answer_prompt, self.max_length, max_new_tokens, top_k, top_p)
-                # 移除答案中的问题文本
+               
                 answer = answer.replace(question, '').strip()
-                # 移除不必要的提示文本
+                
                 answer = answer.replace("请根据文档内容，回答问题：", '').strip()
                 alpaca_format = {
                     "instruction": question,
@@ -208,7 +208,7 @@ def create_gradio_ui():
                 with gr.Column():
                     output_text = gr.Textbox(label="输出 JSON 数据")
                     download_button = gr.Button("下载 JSON 文件")
-                    # 添加条件判断，如果没有文件上传则显示提示信息
+                  
                     output_text.change(lambda x: "请上传文件以继续操作。" if x == "" else x, inputs=[output_text], outputs=[output_text])
 
                 submit_button.click(fn=process_file, inputs=[file_input, custom_prompt_input, num_outlines_input, user_questions_input], outputs=output_text)

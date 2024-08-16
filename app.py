@@ -22,7 +22,7 @@ LOG_FILE = '/home/xlab-app-center/app.log'
 logging.basicConfig(level=logging.INFO, filename=LOG_FILE, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-MODEL_PATH = snapshot_download('Shanghai_AI_Laboratory/internlm2-chat-7b')
+MODEL_PATH = snapshot_download('/home/xlab-app-center/.cache/modelscope/hub/._____temp/Shanghai_AI_Laboratory/internlm2-chat-7b')
 tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, trust_remote_code=True)
 model = AutoModelForCausalLM.from_pretrained(MODEL_PATH, trust_remote_code=True)
 

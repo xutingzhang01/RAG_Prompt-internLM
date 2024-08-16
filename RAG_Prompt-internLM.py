@@ -1,5 +1,5 @@
 '''
-    基于InternLM实现诸葛知识智能问答助手项目
+    基于InternLM实现诸葛孔明智能问答数据集生成助手项目
 '''
 import json
 import re

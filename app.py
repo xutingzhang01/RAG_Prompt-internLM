@@ -13,14 +13,17 @@ from typing import List, Dict
 import pdfplumber
 from docx import Document  # 支持 .docx 文件
 import pandas as pd  # 支持 .xlsx 文件
+#模型下载
+from modelscope import snapshot_download
+
 
 # 配置日志
-LOG_FILE = '../app.log'
+#LOG_FILE = '../app.log'
 logging.basicConfig(level=logging.INFO, filename=LOG_FILE, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # 初始化模型和 tokenizer
-MODEL_PATH = "/root/share/new_models/Shanghai_AI_Laboratory/internlm2-chat-7b"
+MODEL_PATH = snapshot_download('Shanghai_AI_Laboratory/internlm2-chat-7b')
 tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, trust_remote_code=True)
 model = AutoModelForCausalLM.from_pretrained(MODEL_PATH, trust_remote_code=True)
 

@@ -11,8 +11,8 @@ import torch
 import logging
 from typing import List, Dict
 import pdfplumber
-from docx import Document  # 支持 .docx 文件
-import pandas as pd  # 支持 .xlsx 文件
+from docx import Document 
+import pandas as pd  
 #模型下载
 from modelscope import snapshot_download
 
@@ -40,7 +40,7 @@ class QAGenerator:
         torch.cuda.empty_cache()
 
     def _generate_with_retry(self, prompt, max_length, max_new_tokens, top_k, top_p):
-        logger.info(f"Generating response for prompt: {prompt[:512]}...")  # 记录提示的前512个字符
+        logger.info(f"Generating response for prompt: {prompt[:1024]}...")  
         try:
             with torch.no_grad():
                 input_ids = self.tokenizer.encode(prompt, return_tensors="pt").to(self.device)

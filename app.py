@@ -13,16 +13,15 @@ from typing import List, Dict
 import pdfplumber
 from docx import Document 
 import pandas as pd  
-#模型下载
+
 from modelscope import snapshot_download
 
 
-# 配置日志
+
 LOG_FILE = '/home/xlab-app-center/app.log'
 logging.basicConfig(level=logging.INFO, filename=LOG_FILE, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# 初始化模型和 tokenizer
 MODEL_PATH = snapshot_download('Shanghai_AI_Laboratory/internlm2-chat-7b')
 tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, trust_remote_code=True)
 model = AutoModelForCausalLM.from_pretrained(MODEL_PATH, trust_remote_code=True)
@@ -33,9 +32,9 @@ class QAGenerator:
         self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
-        self.max_length = 2048  # 最大长度
+        self.max_length = 2048  
     
-    # 清理 GPU 缓存
+    
     def clear_gpu_cache(self):
         torch.cuda.empty_cache()
 

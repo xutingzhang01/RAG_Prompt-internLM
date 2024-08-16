@@ -18,7 +18,7 @@ from modelscope import snapshot_download
 
 
 # 配置日志
-#LOG_FILE = '../app.log'
+LOG_FILE = '/home/xlab-app-center/app.log'
 logging.basicConfig(level=logging.INFO, filename=LOG_FILE, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 

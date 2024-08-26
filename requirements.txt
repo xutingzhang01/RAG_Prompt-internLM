@@ -2,4 +2,5 @@ pdfplumber
 python-docx
 modelscope
 sentencepiece
+transformers
 einops
